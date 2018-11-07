@@ -114,22 +114,6 @@ class indexdb(object):
             if dfi is not None:
                 dfs.append(dfi)
         df = pd.concat(dfs)
-        # df = df[(df['OPEN'] != 0) & (df['SHARESTRADED'] != '-')]
-        # df = df[(df[indexdb.idx_cols] != '-').all(axis=1)]
-        # df = df[(df[indexdb.idx_cols] != 0).all(axis=1)]
-        # df = df.reset_index()
-        # df = df.rename(columns=indexdb.idx_col_rename)
-        # df['SYMBOL'] = symbol
-        # try:
-        #     for x in indexdb.idx_col_typ:
-        #         try:
-        #             df[x] = df[x].astype('float')
-        #         except Exception as e:
-        #             print(e)
-        #             pass
-        #     df.to_hdf('indexdb.hdf', 'index', mode='a', append=True, format='table', data_columns=True)
-        # except Exception as ex:
-        #     print_exception(ex)
         return df
 
     @staticmethod
@@ -176,47 +160,6 @@ class indexdb(object):
                 zinfo = zipfl.infolist()
                 zipdata = zipfl.read(zinfo[0])
                 zipstring = StringIO(zipdata.decode())
-
-                #Sometimes there are duplicate lines
-                # try:
-                #     dfp = pd.read_csv(zipstring)
-                #     dfp.drop_duplicates()
-                #     for x in indexdb.fno_col_typ:
-                #         try:
-                #             dfp[x] = dfp[x].astype('float')
-                #         except Exception as e:
-                #             try:
-                #                 rn = int(str(e).split()[-1])
-                #                 dfp = dfp.drop(rn, axis=0)
-                #             except:
-                #                 print(e)
-                #                 pass
-                #     df = dfp
-                #     #df = pd.read_csv(stri, dtype=indexdb.fno_col_typ)
-                # except Exception as e:
-                #     print(f'Failed at reading csv {dt:%d-%b-%Y}')
-                #     print(url)
-                #     print(urls)
-                #     print_exception(e)
-                #     return None
-
-                # try:
-                #     cols = [ x for x in df.columns if 'Unnamed' in x]
-                #     if len(cols) > 0:
-                #         df = df.drop(cols, axis=1)
-                # except:
-                #     pass
-                # try:
-                #     df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'])
-                #     df['EXPIRY_DT'] = pd.to_datetime(df['EXPIRY_DT'])
-                #     df = df.reset_index(drop=True)
-                #     print(f'Done {dt:%d-%b-%Y}')
-                # except Exception as e:
-                #     df.to_excel(f'{dt:%d-%b-%Y}.xlsx')
-                #     print(f'Error processing {dt:%d-%b-%Y}')
-                #     print_exception(e)
-                #     return None
-
                 try:
                     dfp = pd.read_csv(zipstring, dtype=indexdb.fno_col_typ, parse_dates=['TIMESTAMP', 'EXPIRY_DT'], error_bad_lines=False)
                     # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP

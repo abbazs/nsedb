@@ -1,6 +1,6 @@
 import pandas as pd
 import numpy as np
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 import requests
 import zipfile
 from io import BytesIO
@@ -43,6 +43,16 @@ class indexdb(object):
     'TURNOVER(RS.CR)':np.float
     }
 
+    vix_col_typ = {
+    'OPEN':np.float,
+    'HIGH':np.float,
+    'LOW':np.float,
+    'CLOSE':np.float,
+    'PCLOSE':np.float,
+    'CHANGE':np.float,
+    '%CHANGE':np.float
+    }
+
     fno_cols = ['TIMESTAMP',
                 'INSTRUMENT',
                 'SYMBOL',
@@ -65,6 +75,7 @@ class indexdb(object):
     }
 
     idx_cols = ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'SHARESTRADED', 'TURNOVER(RS.CR)']
+    vix_cols = ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'PCLOSE', 'CHANGE', '%CHANGE']
 
     def __init__(self):
         self.STOCKS = 'stocks'
@@ -72,22 +83,32 @@ class indexdb(object):
         self.IINDEX = 'index'
     
     @staticmethod
-    def get_dates():
+    def get_dates(start):
         end = date.today()
-        df = pd.DataFrame(pd.date_range(start='1994-1-1', end=end, freq='360D'), columns=['START'])
+        df = pd.DataFrame(pd.date_range(start=start, end=end, freq='360D'), columns=['START'])
         df = df.assign(END=df['START'].shift(-1) - pd.DateOffset(days=1))  
         df['END'].iloc[-1] = datetime.fromordinal(end.toordinal())
         return df
 
     @staticmethod
-    def get_csv_data(urlg):
+    def check_table_exists(name):
+        check = False
+        with pd.HDFStore('indexdb.hdf') as store:
+            names = [g._v_name for g in store.groups()]
+            if name in names:
+                print(f'Historic data is already updated for {name} table.')
+                check = True
+        return check
+            
+    @staticmethod
+    def get_csv_data(urlg, fix_cols):
         pg = requests.get(urlg, headers=indexdb.headers)
         content = pg.content
         if 'No Records' not in content.decode():
             bsf = BeautifulSoup(content, 'html5lib')
             csvc=bsf.find(name='div', attrs={'id':'csvContentDiv'})
             csvs = StringIO(csvc.text.replace(':', '\n'))
-            df = pd.read_csv(csvs)
+            df = pd.read_csv(csvs, error_bad_lines=False)
             cols = {}
             for x in df.columns:
                 if 'Date' in x:
@@ -97,6 +118,7 @@ class indexdb(object):
                 else:
                     cols.update({x:x.replace(' ', '').upper()})
             df = df.rename(columns=cols)
+            df[fix_cols] = df[fix_cols].apply(lambda x: pd.to_numeric(x, errors='coerce').fillna(0))
             df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], dayfirst=True)
             return df
         else:
@@ -104,47 +126,110 @@ class indexdb(object):
 
     @staticmethod
     def updateIndexData(dates, index='NIFTY%2050', symbol='NIFTY'):
-        url = 'https://www.nseindia.com/products/dynaContent/equities/indices/historicalindices.jsp?indexType={index}&fromDate={start}&toDate={end}'
-        dfs=[]
-        for x in dates.iterrows():
-            print(x)
-            urlg = url.format(index=index, start=x[1][0].strftime('%d-%m-%Y'), end=x[1][1].strftime('%d-%m-%Y'))
-            print(urlg)
-            dfi = indexdb.get_csv_data(urlg)
-            if dfi is not None:
-                dfs.append(dfi)
-        df = pd.concat(dfs)
-        return df
+        try:
+            url = 'https://www.nseindia.com/products/dynaContent/equities/indices/historicalindices.jsp?indexType={index}&fromDate={start}&toDate={end}'
+            dfs=[]
+            for x in dates.iterrows():
+                print(x)
+                urlg = url.format(index=index, start=x[1][0].strftime('%d-%m-%Y'), end=x[1][1].strftime('%d-%m-%Y'))
+                print(urlg)
+                dfi = indexdb.get_csv_data(urlg, indexdb.idx_cols)
+                if dfi is not None:
+                    dfs.append(dfi)
+            
+            if len(dfs) > 1:
+                dfo = pd.concat(dfs)
+            elif len(dfs) == 1:
+                dfo = dfs[0]
+            else:
+                dfo = None
+
+            if dfo is not None:
+                dfo = dfo.rename(columns=indexdb.idx_col_rename)
+                dfo['SYMBOL']=symbol
+            
+            return dfo
+        except Exception as e:
+            print_exception(e)
+            return None
 
     @staticmethod
     def getHistoricalNiftyAndBankNifty():
-        dates = indexdb.get_dates()
-        dfn = indexdb.updateIndexData(dates, "NIFTY%2050", 'NIFTY')
-        dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
-        df = pd.concat([dfn, dfbn])
-        return df
+        try:
+            if not indexdb.check_table_exists('idx'):
+                dates = indexdb.get_dates(start='1994-1-1')
+                dfn = indexdb.updateIndexData(dates, "NIFTY%2050", 'NIFTY')
+                dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
+                df = pd.concat([dfn, dfbn])
+                df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
+            return df
+        except Exception as e:
+            print_exception(e)
 
     @staticmethod
-    def updateIndexFromLastUpdate():
-        pass
+    def updateIndex_upto_date():
+        try:
+            dfd = pd.read_hdf('indexdb.hdf', 'idx', columns=['TIMESTAMP'])
+            dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
+            dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
+            dfn = indexdb.updateIndexData(dates, "NIFTY%2050", 'NIFTY')
+            dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
+            if ((dfn is not None) and (dfbn is not None)):
+                df = pd.concat([dfn, dfbn])
+                df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
+            else:
+                print('Nothing to update for index')
+        except Exception as e:
+            print_exception(e)
+
+    @staticmethod
+    def get_vix(dates):
+        try:
+            URL='https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate=08-Oct-2018&toDate=31-Oct-2018'
+            url='https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}'
+            dfs = []
+            for x in dates.iterrows():
+                print(x)
+                urlg = url.format(start=x[1][0].strftime('%d-%b-%Y'), end=x[1][1].strftime('%d-%b-%Y'))
+                print(urlg)
+                dfi = indexdb.get_csv_data(urlg, indexdb.vix_cols)
+                if dfi is not None:
+                    dfs.append(dfi)
+            if len(dfs) > 1:
+                dfo = pd.concat(dfs)
+            elif len(dfs) == 1:
+                dfo = dfs[0]
+            else:
+                dfo = None
+            return dfo
+        except Exception as e:
+            print_exception(e)
+            return None
 
     @staticmethod
     def getHistoricalVix():
-        URL='https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate=08-Oct-2018&toDate=31-Oct-2018'
-        url='https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}'
-        df = indexdb.get_dates()
-        dfs = []
-        for x in df.iterrows():
-            print(x)
-            urlg = url.format(start=x[1][0].strftime('%d-%b-%Y'), end=x[1][1].strftime('%d-%b-%Y'))
-            print(urlg)
-            dfi = indexdb.get_csv_data(urlg)
-            if dfi is not None:
-                dfs.append(dfi)
-        dfo = pd.concat(dfs)
-        dfo.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
-        return dfo
-    
+        try:
+            if not indexdb.check_table_exists('vid'):
+                dates = indexdb.get_dates(start='1994-1-1')
+                dfn = indexdb.get_vix(dates)
+                dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
+        except Exception as e:
+            print_exception(e)
+
+    @staticmethod
+    def updateVix_upto_Update():
+        try:
+            dfd = pd.read_hdf('indexdb.hdf', 'vix', columns=['TIMESTAMP'])
+            dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
+            dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
+            dfn = indexdb.get_vix(dates)
+            if dfn is not None:
+                dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
+            else:
+                print('Nothing to update for vix')
+        except Exception as e:
+            print_exception(e)
+
     @staticmethod
     def get_fno_csv_data(dt):
         action_url = 'https://www.nseindia.com/ArchieveSearch?h_filetype=fobhav&date={date}&section=FO'
@@ -193,14 +278,18 @@ class indexdb(object):
             print_exception(e)
     
     @staticmethod
-    def updateFNOBhavData(end_date):
+    def updateHistoricFNOBhavData(end_date):
         '''
         Do not call this function as this function tries to update the db since 2000-6-12
         '''
-        end = end_date
-        df = pd.bdate_range(start='2000-6-12', end=end).sort_values(ascending=False)
-        indexdb.updateFNOBhavData_for_given_dates(df)
-    
+        try:
+            if not indexdb.check_table_exists('fno'):
+                end = end_date
+                df = pd.bdate_range(start='2000-6-12', end=end).sort_values(ascending=False)
+                indexdb.updateFNOBhavData_for_given_dates(df)
+        except Exception as e:
+            print_exception(e)
+
     @staticmethod
     def updateFNOBhavData_for_given_dates(dates):
         df = dates
@@ -220,3 +309,5 @@ class indexdb(object):
 
 if __name__ == '__main__':
     indexdb.updateFNOBhavData_upto_date()
+    indexdb.updateIndex_upto_date()
+    indexdb.updateVix_upto_Update()

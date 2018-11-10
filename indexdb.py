@@ -74,13 +74,22 @@ class indexdb(object):
     'TURNOVER(RS.CR)':'TURNOVER'
     }
 
+    stk_col_type = {'OPEN':np.float,
+                    'HIGH':np.float,
+                    'LOW':np.float,
+                    'CLOSE':np.float,
+                    'LAST':np.float,
+                    'PREVCLOSE':np.float,
+                    'TOTTRDQTY':np.float,
+                    'TOTTRDVAL':np.float,
+                    'TOTALTRADES':np.float}
+
     idx_cols = ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'SHARESTRADED', 'TURNOVER(RS.CR)']
     vix_cols = ['OPEN', 'HIGH', 'LOW', 'CLOSE', 'PCLOSE', 'CHANGE', '%CHANGE']
+    stk_cols = ['SYMBOL', 'OPEN', 'HIGH', 'LOW', 'CLOSE', 'LAST', 'PREVCLOSE', 'TOTTRDQTY', 'TOTTRDVAL', 'TIMESTAMP', 'TOTALTRADES']
 
     def __init__(self):
-        self.STOCKS = 'stocks'
-        self.FNO = 'fno'
-        self.IINDEX = 'index'
+        pass
     
     @staticmethod
     def get_dates(start):
@@ -119,6 +128,7 @@ class indexdb(object):
                     cols.update({x:x.replace(' ', '').upper()})
             df = df.rename(columns=cols)
             df[fix_cols] = df[fix_cols].apply(lambda x: pd.to_numeric(x, errors='coerce').fillna(0))
+            df[fix_cols] = df[fix_cols].astype(np.float)
             df['TIMESTAMP'] = pd.to_datetime(df['TIMESTAMP'], dayfirst=True)
             return df
         else:
@@ -130,9 +140,7 @@ class indexdb(object):
             url = 'https://www.nseindia.com/products/dynaContent/equities/indices/historicalindices.jsp?indexType={index}&fromDate={start}&toDate={end}'
             dfs=[]
             for x in dates.iterrows():
-                print(x)
                 urlg = url.format(index=index, start=x[1][0].strftime('%d-%m-%Y'), end=x[1][1].strftime('%d-%m-%Y'))
-                print(urlg)
                 dfi = indexdb.get_csv_data(urlg, indexdb.idx_cols)
                 if dfi is not None:
                     dfs.append(dfi)
@@ -150,6 +158,8 @@ class indexdb(object):
             
             return dfo
         except Exception as e:
+            print(url)
+            print(urlg)
             print_exception(e)
             return None
 
@@ -162,6 +172,7 @@ class indexdb(object):
                 dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
                 df = pd.concat([dfn, dfbn])
                 df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
+                print(f'Done idx')
             return df
         except Exception as e:
             print_exception(e)
@@ -177,6 +188,7 @@ class indexdb(object):
             if ((dfn is not None) and (dfbn is not None)):
                 df = pd.concat([dfn, dfbn])
                 df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
+                print(f'Done idx')
             else:
                 print('Nothing to update for index')
         except Exception as e:
@@ -189,9 +201,7 @@ class indexdb(object):
             url='https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}'
             dfs = []
             for x in dates.iterrows():
-                print(x)
                 urlg = url.format(start=x[1][0].strftime('%d-%b-%Y'), end=x[1][1].strftime('%d-%b-%Y'))
-                print(urlg)
                 dfi = indexdb.get_csv_data(urlg, indexdb.vix_cols)
                 if dfi is not None:
                     dfs.append(dfi)
@@ -203,6 +213,8 @@ class indexdb(object):
                 dfo = None
             return dfo
         except Exception as e:
+            print(url)
+            print(urlg)
             print_exception(e)
             return None
 
@@ -213,6 +225,7 @@ class indexdb(object):
                 dates = indexdb.get_dates(start='1994-1-1')
                 dfn = indexdb.get_vix(dates)
                 dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
+                print(f'Done vix')
         except Exception as e:
             print_exception(e)
 
@@ -225,6 +238,7 @@ class indexdb(object):
             dfn = indexdb.get_vix(dates)
             if dfn is not None:
                 dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
+                print(f'Done vix')
             else:
                 print('Nothing to update for vix')
         except Exception as e:
@@ -250,7 +264,6 @@ class indexdb(object):
                     # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP
                     if 'OPTIONTYPE' in dfp.columns:
                         dfp = dfp.rename(columns={'OPTIONTYPE':'OPTION_TYP'})
-                    print(f'Done {dt:%d-%b-%Y}')
                     return dfp[indexdb.fno_cols]
                 except Exception as e:
                     msg = f'Error processing {dt:%d-%b-%Y}'
@@ -301,13 +314,108 @@ class indexdb(object):
                     try:
                         dfc = dfc.reset_index(drop=True)
                         dfc.to_hdf('indexdb.hdf', 'fno', mode='a', append=True, format='table', data_columns=True)
+                        print(f'Done fno {d:%d%b%Y}')
                     except Exception as e:
                         print(f'Error saving data to hdf {d:%d%b%Y}')
                         dfc.to_excel(f'{d:%d-%b-%Y}.xlsx')
                         print_exception(f'Error in processing {d:%d-%b-%Y}')
                         print_exception(e)
+            else:
+                print(f"Data already updated for given date {d:%d-%b-%Y}")
+
+    @staticmethod
+    def get_stk_csv_data(dt):
+        action_url = 'https://www.nseindia.com/ArchieveSearch?h_filetype=eqbhav&date={date}&section=EQ'
+        download_url = 'https://www.nseindia.com/content/historical/EQUITIES/{year}/{month}/cm{date}bhav.csv.zip'
+        #user_url = 'https://www.nseindia.com/products/content/equities/equities/archieve_eq.htm'
+        dtt = dt.strftime('%d-%m-%Y')
+        url = action_url.format(date=dtt)
+        lastPage1 = requests.get(url, headers=indexdb.headers)
+        if not "No file found" in lastPage1.content.decode():
+            urls = download_url.format(year=dt.year, month= dt.strftime('%b').upper(), date=dt.strftime('%d%b%Y').upper())
+            lastPage2 = requests.get(urls, headers=indexdb.headers)
+            if lastPage2.reason == 'OK':
+                byt = BytesIO(lastPage2.content)
+                zipfl = zipfile.ZipFile(byt)
+                zinfo = zipfl.infolist()
+                zipdata = zipfl.read(zinfo[0])
+                zipstring = StringIO(zipdata.decode())
+                try:
+                    dfp = pd.read_csv(zipstring, dtype=indexdb.stk_col_type, parse_dates=['TIMESTAMP'], error_bad_lines=False)
+                    dfp = dfp[dfp['SERIES'] == 'EQ']
+                    if 'TOTALTRADES' not in dfp.columns:
+                        dfp = dfp.assign(TOTALTRADES=0.0)
+                    dfp = dfp[indexdb.stk_cols]
+                    return dfp
+                except Exception as e:
+                    msg = f'Error processing {dt:%d-%b-%Y}'
+                    print_exception(msg)
+                    print_exception(e)
+                    return None
+            else:
+                print(f'Failed at second url {dt:%d-%b-%Y}')
+                print(url)
+                print(urls)
+                return None
+        else:
+            print(f'File not found {dt:%d-%b-%Y}')
+            print(url)
+            return None
+    
+    @staticmethod
+    def updateHistoricSTKBhavData(end_date):
+        '''
+        Do not call this function as this function tries to update the db since 1994-1-1
+        '''
+        try:
+            if not indexdb.check_table_exists('stk'):
+                end = end_date
+                df = pd.bdate_range(start='1994-1-1', end=end).sort_values(ascending=False)
+                indexdb.updateSTKBhavData_for_given_dates(df)
+        except Exception as e:
+            print_exception(e)
+
+    @staticmethod
+    def updateSTKBhavData_for_given_dates(dates):
+        df = dates
+        for d in df:
+            dfc = None
+            try:
+                dfd = pd.read_hdf('indexdb.hdf', 'stk', where="TIMESTAMP==d", columns=['TIMESTAMP'])
+                if ((dfd is None) or (len(dfd) == 0)):
+                    dfc = indexdb.get_stk_csv_data(d)
+                else:
+                    print(f"Data already updated for given date {d:%d-%b-%Y}")
+            except Exception as e:
+                if "No object named stk in the file" in str(e):
+                    dfc = indexdb.get_stk_csv_data(d)
+                else:
+                    print_exception(e)
+            
+            if dfc is not None:
+                try:
+                    dfc = dfc.reset_index(drop=True)
+                    dfc.to_hdf('indexdb.hdf', 'stk', mode='a', append=True, format='table', data_columns=True)
+                    print(f'Done stk {d:%d%b%Y}')
+                except Exception as e:
+                    print(f'Error saving data to stk hdf {d:%d%b%Y}')
+                    dfc.to_excel(f'{d:%d-%b-%Y}.xlsx')
+                    print_exception(f'Error in processing {d:%d-%b-%Y}')
+                    print_exception(e)
+
+
+    @staticmethod
+    def updateSTKBhavData_upto_date():
+        try:
+            dfd = pd.read_hdf('indexdb.hdf', 'stk', columns=['TIMESTAMP'])
+            dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1)
+            df = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), closed='right')
+            indexdb.updateSTKBhavData_for_given_dates(df)
+        except Exception as e:
+            print_exception(e)
 
 if __name__ == '__main__':
     indexdb.updateFNOBhavData_upto_date()
     indexdb.updateIndex_upto_date()
     indexdb.updateVix_upto_Update()
+    indexdb.updateSTKBhavData_upto_date()

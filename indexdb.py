@@ -93,11 +93,21 @@ class indexdb(object):
     
     @staticmethod
     def get_dates(start):
-        end = date.today()
-        df = pd.DataFrame(pd.date_range(start=start, end=end, freq='360D'), columns=['START'])
-        df = df.assign(END=df['START'].shift(-1) - pd.DateOffset(days=1))  
-        df['END'].iloc[-1] = datetime.fromordinal(end.toordinal())
-        return df
+        end = datetime.fromordinal(date.today().toordinal())
+        if start < end:
+            df = pd.DataFrame(pd.date_range(start=start, end=end, freq='360D'), columns=['START'])
+            df = df.assign(END=df['START'].shift(-1) - pd.DateOffset(days=1))  
+            df['END'].iloc[-1] = datetime.fromordinal(end.toordinal())
+            return df
+        else:
+            return None
+
+    @staticmethod
+    def get_next_update_start_date(table):
+        dfd = pd.read_hdf('indexdb.hdf', table, columns=['TIMESTAMP'])
+        dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
+        dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
+        return dates
 
     @staticmethod
     def check_table_exists(name):
@@ -180,15 +190,16 @@ class indexdb(object):
     @staticmethod
     def updateIndex_upto_date():
         try:
-            dfd = pd.read_hdf('indexdb.hdf', 'idx', columns=['TIMESTAMP'])
-            dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
-            dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
-            dfn = indexdb.updateIndexData(dates, "NIFTY%2050", 'NIFTY')
-            dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
-            if ((dfn is not None) and (dfbn is not None)):
-                df = pd.concat([dfn, dfbn])
-                df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
-                print(f'Done idx')
+            dates = indexdb.get_next_update_start_date('idx')
+            if dates is not None:
+                dfn = indexdb.updateIndexData(dates, "NIFTY%2050", 'NIFTY')
+                dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", 'BANKNIFTY')
+                if ((dfn is not None) and (dfbn is not None)):
+                    df = pd.concat([dfn, dfbn])
+                    df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
+                    print(f'Done index')
+                else:
+                    print('Nothing to update for index')
             else:
                 print('Nothing to update for index')
         except Exception as e:
@@ -232,13 +243,14 @@ class indexdb(object):
     @staticmethod
     def updateVix_upto_Update():
         try:
-            dfd = pd.read_hdf('indexdb.hdf', 'vix', columns=['TIMESTAMP'])
-            dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
-            dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
-            dfn = indexdb.get_vix(dates)
-            if dfn is not None:
-                dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
-                print(f'Done vix')
+            dates = indexdb.get_next_update_start_date('vix')
+            if dates is not None:
+                dfn = indexdb.get_vix(dates)
+                if dfn is not None:
+                    dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
+                    print(f'Done vix')
+                else:
+                    print('Nothing to update for vix')
             else:
                 print('Nothing to update for vix')
         except Exception as e:

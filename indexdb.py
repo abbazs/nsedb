@@ -199,9 +199,9 @@ class indexdb(object):
                     df.to_hdf('indexdb.hdf', 'idx', mode='a', append=True, format='table', data_columns=True)
                     print(f'Done index')
                 else:
-                    print('Nothing to update for index')
+                    print('Nothing to update for index...')
             else:
-                print('Nothing to update for index')
+                print('Nothing to update for index...')
         except Exception as e:
             print_exception(e)
 
@@ -250,9 +250,9 @@ class indexdb(object):
                     dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)
                     print(f'Done vix')
                 else:
-                    print('Nothing to update for vix')
+                    print('Nothing to update for vix...')
             else:
-                print('Nothing to update for vix')
+                print('Nothing to update for vix...')
         except Exception as e:
             print_exception(e)
 
@@ -298,7 +298,11 @@ class indexdb(object):
             dfd = pd.read_hdf('indexdb.hdf', 'fno', where="SYMBOL==NIFTY & INSTRUMENT==FUTIDX", columns=['TIMESTAMP'])
             dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1)
             df = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), closed='right')
-            indexdb.updateFNOBhavData_for_given_dates(df)
+            if len(df) > 0:
+                indexdb.updateFNOBhavData_for_given_dates(df)
+                print('Done updating FNO...')
+            else:
+                print('Nothing to update for FNO...')
         except Exception as e:
             print_exception(e)
     
@@ -415,14 +419,17 @@ class indexdb(object):
                     print_exception(f'Error in processing {d:%d-%b-%Y}')
                     print_exception(e)
 
-
     @staticmethod
     def updateSTKBhavData_upto_date():
         try:
             dfd = pd.read_hdf('indexdb.hdf', 'stk', columns=['TIMESTAMP'])
             dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1)
             df = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), closed='right')
-            indexdb.updateSTKBhavData_for_given_dates(df)
+            if len(df) > 0:
+                indexdb.updateSTKBhavData_for_given_dates(df)
+                print('Done updating STOCK...')
+            else:
+                print('Nothing to update for STOCK...')
         except Exception as e:
             print_exception(e)
 

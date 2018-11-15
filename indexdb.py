@@ -93,20 +93,22 @@ class indexdb(object):
     
     @staticmethod
     def get_dates(start):
-        end = datetime.fromordinal(date.today().toordinal())
-        if start < end:
-            df = pd.DataFrame(pd.date_range(start=start, end=end, freq='360D'), columns=['START'])
-            df = df.assign(END=df['START'].shift(-1) - pd.DateOffset(days=1))  
-            df['END'].iloc[-1] = datetime.fromordinal(end.toordinal())
-            return df
-        else:
-            return None
+        end = date.today()
+        df = pd.DataFrame(pd.date_range(start=start, end=end, freq='360D'), columns=['START'])
+        df = df.assign(END=df['START'].shift(-1) - pd.DateOffset(days=1))  
+        df['END'].iloc[-1] = datetime.fromordinal(end.toordinal())
+        return df
 
     @staticmethod
     def get_next_update_start_date(table):
         dfd = pd.read_hdf('indexdb.hdf', table, columns=['TIMESTAMP'])
-        dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1) + timedelta(days=1)
-        dates = indexdb.get_dates(start=dfd['TIMESTAMP'].iloc[0])
+        dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1)
+        dates = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), freq='1D', closed='right')
+        dates = pd.DataFrame(dates, columns=['START'])
+        if len(dates) > 1:
+            dates = dates.assign(END=dates['START'].shift(-1) - pd.DateOffset(days=1))
+        else:
+            dates = dates.assign(END=dates['START'])
         return dates
 
     @staticmethod
@@ -232,7 +234,7 @@ class indexdb(object):
     @staticmethod
     def getHistoricalVix():
         try:
-            if not indexdb.check_table_exists('vid'):
+            if not indexdb.check_table_exists('vix'):
                 dates = indexdb.get_dates(start='1994-1-1')
                 dfn = indexdb.get_vix(dates)
                 dfn.to_hdf('indexdb.hdf', 'vix', mode='a', append=True, format='table', data_columns=True)

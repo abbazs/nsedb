@@ -103,13 +103,18 @@ class indexdb(object):
     def get_next_update_start_date(table):
         dfd = pd.read_hdf('indexdb.hdf', table, columns=['TIMESTAMP'])
         dfd = dfd.sort_values('TIMESTAMP', ascending=False).head(1)
-        dates = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), freq='1D', closed='right')
-        dates = pd.DataFrame(dates, columns=['START'])
-        if len(dates) > 1:
-            dates = dates.assign(END=dates['START'].shift(-1) - pd.DateOffset(days=1))
-        else:
-            dates = dates.assign(END=dates['START'])
-        return dates
+        dates = pd.bdate_range(start=dfd['TIMESTAMP'].iloc[0], end=date.today(), closed='right')
+        try:
+            ddt = dates[-1] - dates[0]
+            if ddt.days > 360:
+                print(f"{ddt.days} > 360 needs futher implementation")
+            else:
+                dts = pd.DataFrame(index=[0, 1])
+                dts = dts.assign(START=dates[0])
+                dts = dts.assign(END=dates[-1])
+            return dts
+        except:
+            return None
 
     @staticmethod
     def check_table_exists(name):

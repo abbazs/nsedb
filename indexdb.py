@@ -1,3 +1,27 @@
+"""
+ The MIT License (MIT)
+ 
+ Copyright (c) 2019 abbazs
+ 
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+ 
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+ 
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+"""
+
 import os
 import sys
 import time
@@ -80,34 +104,10 @@ class indexdb(object):
 
     idx_col_rename = {"SHARESTRADED": "VOLUME"}
 
-    stk_col_type = {
-        "OPEN": np.float,
-        "HIGH": np.float,
-        "LOW": np.float,
-        "CLOSE": np.float,
-        "LAST": np.float,
-        "PREVCLOSE": np.float,
-        "TOTTRDQTY": np.float,
-        "TOTTRDVAL": np.float,
-        "TOTALTRADES": np.float,
-    }
-
     idx_cols = ["OPEN", "HIGH", "LOW", "CLOSE", "SHARESTRADED"]
+    idx_final_cols = ["TIMESTAMP", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
     vix_cols = ["OPEN", "HIGH", "LOW", "CLOSE", "PCLOSE", "CHANGE", "%CHANGE"]
     vix_col_rename = {"%CHANGE": "PERCENTAGE_CHANGE"}
-    stk_cols = [
-        "SYMBOL",
-        "OPEN",
-        "HIGH",
-        "LOW",
-        "CLOSE",
-        "LAST",
-        "PREVCLOSE",
-        "TOTTRDQTY",
-        "TOTTRDVAL",
-        "TIMESTAMP",
-        "TOTALTRADES",
-    ]
 
     def __init__(self):
         pass
@@ -204,7 +204,6 @@ class indexdb(object):
             if dfo is not None:
                 dfo = dfo.rename(columns=indexdb.idx_col_rename)
                 dfo["SYMBOL"] = symbol
-
             return dfo
         except Exception as e:
             print(urlg)
@@ -212,13 +211,13 @@ class indexdb(object):
             return None
 
     @staticmethod
-    def getHistoricalNiftyAndBankNifty():
+    def update_index_for_dates(dates):
         try:
-            if not indexdb.check_table_exists("idx"):
-                dates = indexdb.get_dates(start="1994-1-1")
-                dfn = indexdb.updateIndexData(dates, "NIFTY%2050", "NIFTY")
-                dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", "BANKNIFTY")
+            dfn = indexdb.updateIndexData(dates, "NIFTY%2050", "NIFTY")
+            dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", "BANKNIFTY")
+            if (dfn is not None) and (dfbn is not None):
                 df = pd.concat([dfn, dfbn])
+                df = df[indexdb.idx_final_cols]
                 df.to_hdf(
                     "indexdb.hdf",
                     "idx",
@@ -227,8 +226,22 @@ class indexdb(object):
                     format="table",
                     data_columns=True,
                 )
-                print(f"Done idx")
-            return df
+                print(f"Done index")
+            else:
+                print("Nothing to update for index...")
+        except Exception as e:
+            print_exception(e)
+
+    @staticmethod
+    def getHistoricalNiftyAndBankNifty():
+        try:
+            if indexdb.check_table_exists("idx"):
+                idb = pd.HDFStore("indexdb.hdf")
+                del idb["idx"]
+                idb.close()
+            
+            dates = indexdb.get_dates(start="1994-1-1")
+            indexdb.update_index_for_dates(dates)
         except Exception as e:
             print_exception(e)
 
@@ -237,21 +250,7 @@ class indexdb(object):
         try:
             dates = indexdb.get_next_update_start_date("idx")
             if dates is not None:
-                dfn = indexdb.updateIndexData(dates, "NIFTY%2050", "NIFTY")
-                dfbn = indexdb.updateIndexData(dates, "NIFTY%20BANK", "BANKNIFTY")
-                if (dfn is not None) and (dfbn is not None):
-                    df = pd.concat([dfn, dfbn])
-                    df.to_hdf(
-                        "indexdb.hdf",
-                        "idx",
-                        mode="a",
-                        append=True,
-                        format="table",
-                        data_columns=True,
-                    )
-                    print(f"Done index")
-                else:
-                    print("Nothing to update for index...")
+                indexdb.update_index_for_dates(dates)
             else:
                 print("Nothing to update for index...")
         except Exception as e:
@@ -399,12 +398,10 @@ class indexdb(object):
         Do not call this function as this function tries to update the db since 2000-6-12
         """
         try:
-            if not indexdb.check_table_exists("fno"):
-                end = end_date
-                df = pd.bdate_range(start="2000-6-12", end=end).sort_values(
-                    ascending=False
-                )
-                indexdb.updateFNOBhavData_for_given_dates(df)
+            df = pd.bdate_range(start="2000-6-12", end=end_date).sort_values(
+                ascending=False
+            )
+            indexdb.updateFNOBhavData_for_given_dates(df)
         except Exception as e:
             print_exception(e)
 
@@ -421,12 +418,14 @@ class indexdb(object):
                 )
             except:
                 dfd = None
-            
+
             if (dfd is None) or (len(dfd) == 0):
                 dfc = indexdb.get_fno_csv_data(d)
                 if dfc is not None:
                     try:
-                        dfc = dfc.reset_index(drop=True).query("SYMBOL=='NIFTY' | SYMBOL=='BANKNIFTY'")
+                        dfc = dfc.reset_index(drop=True).query(
+                            "SYMBOL=='NIFTY' | SYMBOL=='BANKNIFTY'"
+                        )
                         dfc.to_hdf(
                             "indexdb.hdf",
                             "fno",
@@ -443,6 +442,17 @@ class indexdb(object):
                         print_exception(e)
             else:
                 print(f"Data already updated for given date {d:%d-%b-%Y}")
+
+    @staticmethod
+    def updateFNOBhavData_for_given_date(date):
+        dt = pd.to_datetime(date)
+        dates = pd.bdate_range(end=dt, periods=1, closed="right")
+        indexdb.updateFNOBhavData_for_given_dates(dates)
+
+    @staticmethod
+    def updateFNOBhavData_between_dates(start, end):
+        dates = pd.bdate_range(start=start, end=end, closed="right")
+        indexdb.updateFNOBhavData_for_given_dates(dates)
 
 if __name__ == "__main__":
     indexdb.updateFNOBhavData_upto_date()

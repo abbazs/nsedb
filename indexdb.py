@@ -27,6 +27,7 @@ import sys
 import time
 import zipfile
 from datetime import date, datetime, timedelta
+from dateutil import parser
 from io import BytesIO, StringIO
 
 import numpy as np
@@ -390,45 +391,65 @@ class indexdb(object):
     def updateFNOBhavData_for_given_dates(dates):
         df = dates
         for d in df:
-            try:
-                dfd = pd.read_hdf(
-                    "indexdb.hdf",
-                    "fno",
-                    where="SYMBOL==NIFTY & INSTRUMENT==FUTIDX & TIMESTAMP==d",
-                    columns=["TIMESTAMP"],
-                )
-            except:
-                dfd = None
-
-            if (dfd is None) or (len(dfd) == 0):
-                dfc = indexdb.get_fno_csv_data(d)
-                if dfc is not None:
-                    try:
-                        dfc = dfc.reset_index(drop=True).query(
-                            "SYMBOL=='NIFTY' | SYMBOL=='BANKNIFTY'"
-                        )
-                        dfc.to_hdf(
-                            "indexdb.hdf",
-                            "fno",
-                            mode="a",
-                            append=True,
-                            format="table",
-                            data_columns=True,
-                        )
-                        print(f"Done fno {d:%d%b%Y}")
-                    except Exception as e:
-                        print(f"Error saving data to hdf {d:%d%b%Y}")
-                        dfc.to_excel(f"{d:%d-%b-%Y}.xlsx")
-                        print_exception(f"Error in processing {d:%d-%b-%Y}")
-                        print_exception(e)
-            else:
-                print(f"Data already updated for given date {d:%d-%b-%Y}")
+            indexdb.updateFNOBhavData_for_given_date(d)
 
     @staticmethod
-    def updateFNOBhavData_for_given_date(date):
-        dt = pd.to_datetime(date)
-        dates = pd.bdate_range(end=dt, periods=1, closed="right")
-        indexdb.updateFNOBhavData_for_given_dates(dates)
+    def updateFNOBhavData_for_given_date(d, force_update=False):
+        dt = None
+
+        try:
+            if isinstance(d, datetime):
+                dt = datetime.combine(d, datetime.min.time())
+            elif isinstance(d, str):
+                dt = parser.parse(d) 
+        except Exception as e:
+            print(f"Error processing input date {d}")
+            print_exception(e)
+        
+        try:
+            dfd = pd.read_hdf(
+                "indexdb.hdf",
+                "fno",
+                where="SYMBOL==NIFTY & INSTRUMENT==FUTIDX & TIMESTAMP==dt",
+                columns=["TIMESTAMP"],
+            )
+
+            if len(dfd) == 0:
+                dfd = None
+            elif force_update:
+                try:
+                    store = pd.HDFStore("indexdb.hdf")
+                    store.remove("fno", where="TIMESTAMP==dt")
+                    store.close()
+                except:
+                    print("Unable to force update.")
+                    dfd = False
+        except:
+            dfd = None
+
+        if dfd is None:
+            dfc = indexdb.get_fno_csv_data(dt)
+            if dfc is not None:
+                try:
+                    dfc = dfc.reset_index(drop=True).query(
+                        "SYMBOL=='NIFTY' | SYMBOL=='BANKNIFTY'"
+                    )
+                    dfc.to_hdf(
+                        "indexdb.hdf",
+                        "fno",
+                        mode="a",
+                        append=True,
+                        format="table",
+                        data_columns=True,
+                    )
+                    print(f"Done fno {dt:%d%b%Y}")
+                except Exception as e:
+                    print(f"Error saving data to hdf {dt:%d%b%Y}")
+                    dfc.to_excel(f"{dt:%d-%b-%Y}.xlsx")
+                    print_exception(f"Error in processing {dt:%d-%b-%Y}")
+                    print_exception(e)
+        else:
+            print(f"Data already updated for given date {dt:%d-%b-%Y}")
 
     @staticmethod
     def updateFNOBhavData_between_dates(start, end):

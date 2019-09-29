@@ -65,25 +65,6 @@ class indexdb(object):
         "CHG_IN_OI": np.float,
     }
 
-    idx_col_typ = {
-        "OPEN": np.float,
-        "HIGH": np.float,
-        "LOW": np.float,
-        "CLOSE": np.float,
-        "SHARESTRADED": np.float,
-        "TURNOVER": np.float,
-    }
-
-    vix_col_typ = {
-        "OPEN": np.float,
-        "HIGH": np.float,
-        "LOW": np.float,
-        "CLOSE": np.float,
-        "PCLOSE": np.float,
-        "CHANGE": np.float,
-        "PERCENTAGE_CHANGE": np.float,
-    }
-
     fno_cols = [
         "TIMESTAMP",
         "INSTRUMENT",
@@ -105,7 +86,7 @@ class indexdb(object):
     idx_col_rename = {"SHARESTRADED": "VOLUME"}
 
     idx_cols = ["OPEN", "HIGH", "LOW", "CLOSE", "SHARESTRADED"]
-    idx_final_cols = ["TIMESTAMP", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
+    idx_final_cols = ["TIMESTAMP", "SYMBOL", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
     vix_cols = ["OPEN", "HIGH", "LOW", "CLOSE", "PCLOSE", "CHANGE", "%CHANGE"]
     vix_col_rename = {"%CHANGE": "PERCENTAGE_CHANGE"}
 

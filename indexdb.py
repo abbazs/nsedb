@@ -221,7 +221,7 @@ class indexdb(object):
                 idb = pd.HDFStore("indexdb.hdf")
                 del idb["idx"]
                 idb.close()
-            
+
             dates = indexdb.get_dates(start="1994-1-1")
             indexdb.update_index_for_dates(dates)
         except Exception as e:
@@ -401,11 +401,11 @@ class indexdb(object):
             if isinstance(d, datetime):
                 dt = datetime.combine(d, datetime.min.time())
             elif isinstance(d, str):
-                dt = parser.parse(d) 
+                dt = parser.parse(d)
         except Exception as e:
             print(f"Error processing input date {d}")
             print_exception(e)
-        
+
         try:
             dfd = pd.read_hdf(
                 "indexdb.hdf",
@@ -455,6 +455,7 @@ class indexdb(object):
     def updateFNOBhavData_between_dates(start, end):
         dates = pd.bdate_range(start=start, end=end, closed="right")
         indexdb.updateFNOBhavData_for_given_dates(dates)
+
 
 if __name__ == "__main__":
     indexdb.updateFNOBhavData_upto_date()

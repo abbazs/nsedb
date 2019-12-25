@@ -1,0 +1,3 @@
+# To schedule crontab job 
+# issue command crontab filename.txt
+00 21 * * 1-5 /home/abbas/work/github/hdf5db/run.sh

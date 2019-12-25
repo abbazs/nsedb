@@ -27,14 +27,15 @@ import sys
 import time
 import zipfile
 from datetime import date, datetime, timedelta
-from dateutil import parser
 from io import BytesIO, StringIO
 
 import numpy as np
 import pandas as pd
 import requests
 from bs4 import BeautifulSoup
-
+from dateutil import parser
+from sqlalchemy import create_engine
+from pandas.io import sql
 from log import print_exception
 
 
@@ -90,6 +91,8 @@ class indexdb(object):
     idx_final_cols = ["TIMESTAMP", "SYMBOL", "OPEN", "HIGH", "LOW", "CLOSE", "VOLUME"]
     vix_cols = ["OPEN", "HIGH", "LOW", "CLOSE", "PCLOSE", "CHANGE", "%CHANGE"]
     vix_col_rename = {"%CHANGE": "PERCENTAGE_CHANGE"}
+    # nsedb
+    engine = create_engine("postgresql://postgres@localhost:5432/nsedb")
 
     def __init__(self):
         pass
@@ -106,7 +109,9 @@ class indexdb(object):
 
     @staticmethod
     def get_next_update_start_date(table):
-        dfd = pd.read_hdf("indexdb.hdf", table, columns=["TIMESTAMP"])
+        dfd = pd.read_sql_table(
+            table_name=table, con=indexdb.engine, columns=["TIMESTAMP"]
+        )
         dfd = dfd.sort_values("TIMESTAMP", ascending=False).head(1)
         dates = pd.bdate_range(
             start=dfd["TIMESTAMP"].iloc[0], end=date.today(), closed="right"
@@ -126,11 +131,9 @@ class indexdb(object):
     @staticmethod
     def check_table_exists(name):
         check = False
-        with pd.HDFStore("indexdb.hdf") as store:
-            names = [g._v_name for g in store.groups()]
-            if name in names:
-                print(f"Historic data is already updated for {name} table.")
-                check = True
+        if name in indexdb.engine.table_names():
+            print(f"Historic data is already updated for {name} table.")
+            check = True
         return check
 
     @staticmethod
@@ -200,13 +203,8 @@ class indexdb(object):
             if (dfn is not None) and (dfbn is not None):
                 df = pd.concat([dfn, dfbn])
                 df = df[indexdb.idx_final_cols]
-                df.to_hdf(
-                    "indexdb.hdf",
-                    "idx",
-                    mode="a",
-                    append=True,
-                    format="table",
-                    data_columns=True,
+                df.to_sql(
+                    name="idx", con=indexdb.engine, if_exists="append",
                 )
                 print(f"Done index")
             else:
@@ -218,9 +216,7 @@ class indexdb(object):
     def getHistoricalNiftyAndBankNifty():
         try:
             if indexdb.check_table_exists("idx"):
-                idb = pd.HDFStore("indexdb.hdf")
-                del idb["idx"]
-                idb.close()
+                res = sql.execute("DROP TABLE IF EXISTS idx", indexdb.engine)
 
             dates = indexdb.get_dates(start="1994-1-1")
             indexdb.update_index_for_dates(dates)
@@ -272,13 +268,8 @@ class indexdb(object):
                 dates = indexdb.get_dates(start="2007-1-1")
                 dfn = indexdb.get_vix(dates)
                 dfn = dfn.rename(columns=indexdb.vix_col_rename)
-                dfn.to_hdf(
-                    "indexdb.hdf",
-                    "vix",
-                    mode="a",
-                    append=True,
-                    format="table",
-                    data_columns=True,
+                dfn.to_sql(
+                    name="vix", con=indexdb.engine, if_exists="append",
                 )
                 print(f"Done vix")
         except Exception as e:
@@ -292,13 +283,8 @@ class indexdb(object):
                 dfn = indexdb.get_vix(dates)
                 if dfn is not None:
                     dfn = dfn.rename(columns=indexdb.vix_col_rename)
-                    dfn.to_hdf(
-                        "indexdb.hdf",
-                        "vix",
-                        mode="a",
-                        append=True,
-                        format="table",
-                        data_columns=True,
+                    dfn.to_sql(
+                        name="vix", con=indexdb.engine, if_exists="append",
                     )
                     print(f"Done vix")
                 else:
@@ -310,57 +296,60 @@ class indexdb(object):
 
     @staticmethod
     def get_fno_csv_data(dt):
-        action_url = "https://www.nseindia.com/ArchieveSearch?h_filetype=fobhav&date={date}&section=FO"
-        download_url = "https://www.nseindia.com/content/historical/DERIVATIVES/{year}/{month}/fo{date}bhav.csv.zip"
-        url = action_url.format(date=dt.strftime("%d-%m-%Y"))
-        urlp = requests.get(url, headers=indexdb.headers)
-        if not "No file found" in urlp.content.decode():
-            urls = download_url.format(
-                year=dt.year,
-                month=dt.strftime("%b").upper(),
-                date=dt.strftime("%d%b%Y").upper(),
-            )
-            urlap = requests.get(urls, headers=indexdb.headers)
-            if urlap.reason == "OK":
-                byt = BytesIO(urlap.content)
-                zipfl = zipfile.ZipFile(byt)
-                zinfo = zipfl.infolist()
-                zipdata = zipfl.read(zinfo[0])
-                zipstring = StringIO(zipdata.decode())
-                try:
-                    dfp = pd.read_csv(
-                        zipstring,
-                        dtype=indexdb.fno_col_typ,
-                        parse_dates=["TIMESTAMP", "EXPIRY_DT"],
-                        error_bad_lines=False,
-                    )
-                    # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP
-                    if "OPTIONTYPE" in dfp.columns:
-                        dfp = dfp.rename(columns={"OPTIONTYPE": "OPTION_TYP"})
-                    return dfp[indexdb.fno_cols]
-                except Exception as e:
-                    msg = f"Error processing {dt:%d-%b-%Y}"
-                    print_exception(msg)
-                    print_exception(e)
+        try:
+            action_url = "https://www.nseindia.com/ArchieveSearch?h_filetype=fobhav&date={date}&section=FO"
+            download_url = "https://www.nseindia.com/content/historical/DERIVATIVES/{year}/{month}/fo{date}bhav.csv.zip"
+            print(f"Started {dt:%d-%b-%Y} ... ", end="")
+            url = action_url.format(date=dt.strftime("%d-%m-%Y"))
+            urlp = requests.get(url, headers=indexdb.headers)
+            if not "No file found" in urlp.content.decode():
+                urls = download_url.format(
+                    year=dt.year,
+                    month=dt.strftime("%b").upper(),
+                    date=dt.strftime("%d%b%Y").upper(),
+                )
+                urlap = requests.get(urls, headers=indexdb.headers)
+                if urlap.reason == "OK":
+                    byt = BytesIO(urlap.content)
+                    zipfl = zipfile.ZipFile(byt)
+                    zinfo = zipfl.infolist()
+                    zipdata = zipfl.read(zinfo[0])
+                    zipstring = StringIO(zipdata.decode())
+                    try:
+                        dfp = pd.read_csv(
+                            zipstring,
+                            dtype=indexdb.fno_col_typ,
+                            parse_dates=["TIMESTAMP", "EXPIRY_DT"],
+                            error_bad_lines=False,
+                        )
+                        # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP
+                        if "OPTIONTYPE" in dfp.columns:
+                            dfp = dfp.rename(columns={"OPTIONTYPE": "OPTION_TYP"})
+                        return dfp[indexdb.fno_cols]
+                    except Exception as e:
+                        msg = f"Error processing {dt:%d-%b-%Y}"
+                        print_exception(msg)
+                        print_exception(e)
+                        return None
+                else:
+                    print(f"Failed at second url {dt:%d-%b-%Y}")
+                    print(url)
+                    print(urls)
                     return None
             else:
-                print(f"Failed at second url {dt:%d-%b-%Y}")
+                print(f"File not found for fno {dt:%d-%b-%Y}")
                 print(url)
-                print(urls)
                 return None
-        else:
-            print(f"File not found for fno {dt:%d-%b-%Y}")
-            print(url)
-            return None
+        except Exception as e:
+            print_exception(e)
+            print(f"Error getting data for date {dt:%d-%b-%Y}")
 
     @staticmethod
     def updateFNOBhavData_upto_date():
         try:
-            dfd = pd.read_hdf(
-                "indexdb.hdf",
-                "fno",
-                where="SYMBOL==NIFTY & INSTRUMENT==FUTIDX",
-                columns=["TIMESTAMP"],
+            dfd = pd.read_sql(
+                sql="SELECT \"TIMESTAMP\" FROM fno WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX'",
+                con=indexdb.engine,
             )
             dfd = dfd.sort_values("TIMESTAMP", ascending=False).head(1)
             df = pd.bdate_range(
@@ -407,23 +396,14 @@ class indexdb(object):
             print_exception(e)
 
         try:
-            dfd = pd.read_hdf(
-                "indexdb.hdf",
-                "fno",
-                where="SYMBOL==NIFTY & INSTRUMENT==FUTIDX & TIMESTAMP==dt",
-                columns=["TIMESTAMP"],
+            dfd = pd.read_sql(
+                sql=f"SELECT \"TIMESTAMP\" FROM fno WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX' AND \"TIMESTAMP\"='{dt}'",
+                con=indexdb.engine,
             )
-
             if len(dfd) == 0:
                 dfd = None
             elif force_update:
-                try:
-                    store = pd.HDFStore("indexdb.hdf")
-                    store.remove("fno", where="TIMESTAMP==dt")
-                    store.close()
-                except:
-                    print("Unable to force update.")
-                    dfd = False
+                raise Exception("Force exception is not yet implemented.")
         except:
             dfd = None
 
@@ -431,20 +411,13 @@ class indexdb(object):
             dfc = indexdb.get_fno_csv_data(dt)
             if dfc is not None:
                 try:
-                    dfc = dfc.reset_index(drop=True).query(
-                        "SYMBOL=='NIFTY' | SYMBOL=='BANKNIFTY'"
-                    )
-                    dfc.to_hdf(
-                        "indexdb.hdf",
-                        "fno",
-                        mode="a",
-                        append=True,
-                        format="table",
-                        data_columns=True,
+                    dfc = dfc.reset_index(drop=True)
+                    dfc.to_sql(
+                        name="fno", con=indexdb.engine, if_exists="append",
                     )
                     print(f"Done fno {dt:%d%b%Y}")
                 except Exception as e:
-                    print(f"Error saving data to hdf {dt:%d%b%Y}")
+                    print(f"Error saving data to database {dt:%d%b%Y}")
                     dfc.to_excel(f"{dt:%d-%b-%Y}.xlsx")
                     print_exception(f"Error in processing {dt:%d-%b-%Y}")
                     print_exception(e)

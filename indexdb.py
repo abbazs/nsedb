@@ -348,7 +348,7 @@ class indexdb(object):
     def updateFNOBhavData_upto_date():
         try:
             dfd = pd.read_sql(
-                sql="SELECT \"TIMESTAMP\" FROM fno WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX'",
+                sql="SELECT \"TIMESTAMP\" FROM fno_nifty WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX'",
                 con=indexdb.engine,
             )
             dfd = dfd.sort_values("TIMESTAMP", ascending=False).head(1)
@@ -397,7 +397,7 @@ class indexdb(object):
 
         try:
             dfd = pd.read_sql(
-                sql=f"SELECT \"TIMESTAMP\" FROM fno WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX' AND \"TIMESTAMP\"='{dt}'",
+                sql=f"SELECT \"TIMESTAMP\" FROM fno_nifty WHERE \"SYMBOL\"='NIFTY' AND \"INSTRUMENT\"='FUTIDX' AND \"TIMESTAMP\"='{dt}'",
                 con=indexdb.engine,
             )
             if len(dfd) == 0:
@@ -412,8 +412,17 @@ class indexdb(object):
             if dfc is not None:
                 try:
                     dfc = dfc.reset_index(drop=True)
-                    dfc.to_sql(
+                    dfs = dfc[~(dfc["SYMBOL"] == "NIFTY")]
+                    dfs.to_sql(
                         name="fno", con=indexdb.engine, if_exists="append",
+                    )
+                    dfn = dfc[(dfc["SYMBOL"] == "NIFTY")]
+                    dfn.to_sql(
+                        name="fno_nifty", con=indexdb.engine, if_exists="append",
+                    )
+                    dfb = dfc[(dfc["SYMBOL"] == "BANKNIFTY")]
+                    dfb.to_sql(
+                        name="fno_banknifty", con=indexdb.engine, if_exists="append",
                     )
                     print(f"Done fno {dt:%d%b%Y}")
                 except Exception as e:

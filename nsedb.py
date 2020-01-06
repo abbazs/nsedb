@@ -21,10 +21,11 @@
  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
  SOFTWARE.
 """
-
+import json
 import os
 import sys
 import time
+import urllib
 import zipfile
 from datetime import date, datetime, timedelta
 from io import BytesIO, StringIO
@@ -34,8 +35,9 @@ import pandas as pd
 import requests
 from bs4 import BeautifulSoup
 from dateutil import parser
-from sqlalchemy import create_engine
 from pandas.io import sql
+from sqlalchemy import create_engine
+
 from log import print_exception
 
 
@@ -43,15 +45,13 @@ class nsedb(object):
     """Creates and updates database of index Nifty and BankNifty since 1994"""
 
     headers = {"Host": "www.nseindia.com"}
-    headers[
-        "User-Agent"
-    ] = "Mozilla/5.0 (Windows NT 6.1; Win64; x64; rv:56.0) Gecko/20100101 Firefox/56.0"
+    headers["User-Agent"] = "Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14"
     headers["Accept"] = "*/*"
     headers["Accept-Language"] = "en-US,en;q=0.5"
     headers["Accept-Encoding"] = "gzip, deflate, br"
     headers[
         "Referer"
-    ] = "https://www.nseindia.com/products/content/equities/equities/archieve_eq.htm"
+    ] = "https://www1.nseindia.com/products/content/equities/equities/archieve_eq.htm"
     headers["Connection"] = "keep-alive"
 
     fno_col_typ = {
@@ -179,7 +179,7 @@ class nsedb(object):
     @staticmethod
     def updateIndexData(dates, index="NIFTY%2050", symbol="NIFTY"):
         try:
-            url = "https://www.nseindia.com/products/dynaContent/equities/indices/historicalindices.jsp?indexType={index}&fromDate={start}&toDate={end}"
+            url = "https://www1.nseindia.com/products/dynaContent/equities/indices/historicalindices.jsp?indexType={index}&fromDate={start}&toDate={end}"
             dfs = []
             for x in dates.iterrows():
                 urlg = url.format(
@@ -251,7 +251,7 @@ class nsedb(object):
     def get_vix(dates):
         try:
             # "https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate=08-Oct-2018&toDate=31-Oct-2018"
-            url = "https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}"
+            url = "https://www1.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}"
             dfs = []
             for x in dates.iterrows():
                 urlg = url.format(
@@ -309,77 +309,75 @@ class nsedb(object):
 
     @staticmethod
     def get_bhav_csv_data(dt, typ):
-        url = None
+        print(f"Started {dt:%d-%b-%Y} ... ", end="")
         urls = None
         try:
             tp = typ.lower()
-            action_url = "https://www.nseindia.com/ArchieveSearch?h_filetype={typ}bhav&date={date}&section={typ}"
-            download_url = "https://www.nseindia.com/content/historical/{prod}/{year}/{month}/{typ}{date}bhav.csv.zip"
-            print(f"Started {dt:%d-%b-%Y} ... ", end="")
-            url = action_url.format(date=dt.strftime("%d-%m-%Y"), typ=tp)
-            urlp = requests.get(url, headers=nsedb.headers)
-            if all([urlp.reason == "OK", not "No file found" in urlp.content.decode()]):
-                if tp == "eq":
-                    ttp = "cm"
-                    prd = "EQUITIES"
-                else:
-                    ttp = tp
-                    prd = "DERIVATIVES"
 
-                urls = download_url.format(
-                    year=dt.year,
-                    month=dt.strftime("%b").upper(),
-                    date=dt.strftime("%d%b%Y").upper(),
-                    typ=ttp,
-                    prod=prd,
-                )
-                urlap = requests.get(urls, headers=nsedb.headers)
-                if urlap.reason == "OK":
-                    byt = BytesIO(urlap.content)
-                    zipfl = zipfile.ZipFile(byt)
-                    zinfo = zipfl.infolist()
-                    zipdata = zipfl.read(zinfo[0])
-                    zipstring = StringIO(zipdata.decode())
-                    try:
+            urld = {
+                "name": "",
+                "type": "archives",
+                "category": "",
+                "section": "equity",
+            }
 
-                        if tp == "fo":
-                            pds = ["TIMESTAMP", "EXPIRY_DT"]
-                        else:
-                            pds = ["TIMESTAMP"]
+            if tp == "eq":
+                urld["name"] = "CM - Bhavcopy(csv)"
+                urld["category"] = "capital-market"
+            else:
+                urld["name"] = "F&O - Bhavcopy(csv)"
+                urld["category"] = "derivatives"
 
-                        dfp = pd.read_csv(
-                            zipstring,
-                            dtype=nsedb.fno_col_typ,
-                            parse_dates=pds,
-                            error_bad_lines=False,
-                        )
+            urlp = urllib.parse.quote(f"[{json.dumps(urld, separators=(',',':'))}]".encode("utf-8"), safe="()")
+            urls = (
+                "https://beta.nseindia.com/api/reports?archives="
+                f"{urlp}"
+                f"&date={dt:%d-%b-%Y}"
+            )
+            urlap = requests.get(urls, headers=nsedb.headers)
+            if urlap.reason == "OK":
+                byt = BytesIO(urlap.content)
+                zipfl = zipfile.ZipFile(byt)
+                zinfo = zipfl.infolist()
+                zipdata0 = zipfl.read(zinfo[0])
+                zipfl1 = zipfile.ZipFile(BytesIO(zipdata0))
+                zinfo1 = zipfl1.infolist()
+                zipdata = zipfl1.read(zinfo1[0])
+                zipstring = StringIO(zipdata.decode())
+                try:
+                    if tp == "fo":
+                        pds = ["TIMESTAMP", "EXPIRY_DT"]
+                    else:
+                        pds = ["TIMESTAMP"]
 
-                        if tp == "fo":
-                            # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP
-                            if "OPTIONTYPE" in dfp.columns:
-                                dfp = dfp.rename(columns={"OPTIONTYPE": "OPTION_TYP"})
-                            return dfp[nsedb.fno_cols]
-                        else:
-                            dfp = dfp[dfp["SERIES"] == "EQ"]
-                            return dfp[nsedb.eq_cols]
-                    except Exception as e:
-                        msg = f"Error processing {dt:%d-%b-%Y}"
-                        print_exception(msg)
-                        print_exception(e)
-                        return None
-                else:
-                    print(f"Failed at second url {dt:%d-%b-%Y}")
-                    print(url)
-                    print(urls)
+                    dfp = pd.read_csv(
+                        zipstring,
+                        dtype=nsedb.fno_col_typ,
+                        parse_dates=pds,
+                        error_bad_lines=False,
+                    )
+
+                    if tp == "fo":
+                        # Sometimes options type column is named as OPTIONTYPE instead of OPTION_TYP
+                        if "OPTIONTYPE" in dfp.columns:
+                            dfp = dfp.rename(columns={"OPTIONTYPE": "OPTION_TYP"})
+                        return dfp[nsedb.fno_cols]
+                    else:
+                        dfp = dfp[dfp["SERIES"] == "EQ"]
+                        return dfp[nsedb.eq_cols]
+                except Exception as e:
+                    msg = f"Error processing {dt:%d-%b-%Y}"
+                    print_exception(msg)
+                    print_exception(e)
                     return None
             else:
-                print(f"Failed at first url {tp} {dt:%d-%b-%Y}")
-                print(url)
+                print(f"Failed at url {dt:%d-%b-%Y}")
+                print(urls)
                 return None
         except Exception as e:
             print_exception(e)
             print(f"Error getting data for date {dt:%d-%b-%Y}")
-            print(f"{url}\n{urls}")
+            print(f"{urls}")
 
     @staticmethod
     def updateFNOBhavData_upto_date():

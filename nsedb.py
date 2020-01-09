@@ -151,7 +151,23 @@ class nsedb(object):
 
     @staticmethod
     def get_csv_data(urlg, fix_cols):
-        pg = requests.get(urlg, headers=nsedb.headers)
+        hdrs = {
+            "Host": "www1.nseindia.com",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "User-Agent": "Opera/9.80 (Windows NT 6.0) Presto/2.12.388 Version/12.14",
+            "Sec-Fetch-User": "?1",
+            "Accept": (
+                "text/html,application/xhtml+xml,"
+                "application/xml;q=0.9,image/webp,image/apng,"
+                "*/*;q=0.8,application/signed-exchange;v=b3;q=0.9"
+            ),
+            "Sec-Fetch-Site": "none",
+            "Sec-Fetch-Mode": "navigate",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Accept-Language": "en-US,en;q=0.9,ta;q=0.8",
+        }
+        pg = requests.get(urlg, headers=hdrs)
         content = pg.content
         if "No Records" not in content.decode():
             bsf = BeautifulSoup(content, "html5lib")
@@ -250,7 +266,6 @@ class nsedb(object):
     @staticmethod
     def get_vix(dates):
         try:
-            # "https://www.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate=08-Oct-2018&toDate=31-Oct-2018"
             url = "https://www1.nseindia.com/products/dynaContent/equities/indices/hist_vix_data.jsp?&fromDate={start}&toDate={end}"
             dfs = []
             for x in dates.iterrows():
@@ -328,7 +343,9 @@ class nsedb(object):
                 urld["name"] = "F&O - Bhavcopy(csv)"
                 urld["category"] = "derivatives"
 
-            urlp = urllib.parse.quote(f"[{json.dumps(urld, separators=(',',':'))}]".encode("utf-8"), safe="()")
+            urlp = urllib.parse.quote(
+                f"[{json.dumps(urld, separators=(',',':'))}]".encode("utf-8"), safe="()"
+            )
             urls = (
                 "https://beta.nseindia.com/api/reports?archives="
                 f"{urlp}"

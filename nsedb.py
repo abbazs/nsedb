@@ -233,7 +233,7 @@ class nsedb(object):
                 df = pd.concat([dfn, dfbn])
                 df = df[nsedb.idx_final_cols]
                 df.to_sql(
-                    name="idx", con=nsedb.engine, if_exists="append",
+                    name="idx", con=nsedb.engine, if_exists="append", index_label="id",
                 )
                 print(f"Done index")
             else:
@@ -297,7 +297,7 @@ class nsedb(object):
                 dfn = nsedb.get_vix(dates)
                 dfn = dfn.rename(columns=nsedb.vix_col_rename)
                 dfn.to_sql(
-                    name="vix", con=nsedb.engine, if_exists="append",
+                    name="vix", con=nsedb.engine, if_exists="append", index_label="id",
                 )
                 print(f"Done vix")
         except Exception as e:
@@ -312,7 +312,10 @@ class nsedb(object):
                 if dfn is not None:
                     dfn = dfn.rename(columns=nsedb.vix_col_rename)
                     dfn.to_sql(
-                        name="vix", con=nsedb.engine, if_exists="append",
+                        name="vix",
+                        con=nsedb.engine,
+                        if_exists="append",
+                        index_label="id",
                     )
                     print(f"Done vix")
                 else:
@@ -347,7 +350,7 @@ class nsedb(object):
                 f"[{json.dumps(urld, separators=(',',':'))}]".encode("utf-8"), safe="()"
             )
             urls = (
-                "https://beta.nseindia.com/api/reports?archives="
+                "https://nseindia.com/api/reports?archives="
                 f"{urlp}"
                 f"&date={dt:%d-%b-%Y}"
             )
@@ -499,15 +502,24 @@ class nsedb(object):
                     dfc = dfc.reset_index(drop=True)
                     dfs = dfc[~(dfc["SYMBOL"] == "NIFTY")]
                     dfs.to_sql(
-                        name="fno", con=nsedb.engine, if_exists="append",
+                        name="fno",
+                        con=nsedb.engine,
+                        if_exists="append",
+                        index_label="id",
                     )
                     dfn = dfc[(dfc["SYMBOL"] == "NIFTY")]
                     dfn.to_sql(
-                        name="fno_nifty", con=nsedb.engine, if_exists="append",
+                        name="fno_nifty",
+                        con=nsedb.engine,
+                        if_exists="append",
+                        index_label="id",
                     )
                     dfb = dfc[(dfc["SYMBOL"] == "BANKNIFTY")]
                     dfb.to_sql(
-                        name="fno_banknifty", con=nsedb.engine, if_exists="append",
+                        name="fno_banknifty",
+                        con=nsedb.engine,
+                        if_exists="append",
+                        index_label="id",
                     )
                     print(f"Done fno {dt:%d%b%Y}")
                 except Exception as e:
@@ -549,7 +561,10 @@ class nsedb(object):
                 try:
                     dfc = dfc.reset_index(drop=True)
                     dfc.to_sql(
-                        name="spot", con=nsedb.engine, if_exists="append",
+                        name="spot",
+                        con=nsedb.engine,
+                        if_exists="append",
+                        index_label="id",
                     )
                     print(f"Done EQ {dt:%d%b%Y}")
                 except Exception as e:
